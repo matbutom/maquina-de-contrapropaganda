@@ -13,9 +13,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.env/
-venv/
-env/
 .ipynb_checkpoints/
 *.egg-info/
 build/
@@ -31,7 +28,6 @@ data/
 *.xlsx
 *.xml
 *.h5
-*.keras
 *.npy
 *.npz
 *.pkl
