@@ -29,7 +29,6 @@ dist/
 data/
 *.csv
 *.xlsx
-*.json
 *.xml
 *.h5
 *.keras
