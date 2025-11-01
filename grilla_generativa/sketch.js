@@ -1,5 +1,5 @@
 // =========================================================
-// sketch.js: Grilla Generativa Masiva (Aleatoria y Asíncrona)
+// sketch.js: Grilla Generativa (Transmisor de LocalStorage)
 // =========================================================
 
 // --- Variables Globales de Configuración ---
@@ -7,8 +7,9 @@ const LATENT_DIM = 64;
 const IMG_SIZE = 64;
 const MODEL_BASE_URL = '../tfjs_models_final'; 
 
-// 🚨 CAMBIO: Aumentamos el número de celdas para llenar la pantalla verticalmente
-const NUM_CELLS = 160; // (Antes era 150) ¡Ajusta este número si aún ves espacios!
+// Tus configuraciones personalizadas
+const NUM_CELLS = 160; 
+const FRAME_RATE_PER_CELL = 19; 
 
 /**
  * Función principal asíncrona.
@@ -42,7 +43,7 @@ async function main() {
     
     const gridContainer = document.getElementById('grid-container');
     
-    // 3. 🚨 CAMBIO: Crear 300 celdas
+    // 3. Crear 160 celdas
     for (let i = 0; i < NUM_CELLS; i++) {
         let cellDiv = document.createElement('div');
         cellDiv.className = 'grid-cell';
@@ -55,8 +56,8 @@ async function main() {
         const randomFrameRate = Math.random() * (15 - 2) + 2;
         const randomMutationSpeed = Math.random() * (0.1 - 0.02) + 0.02;
 
-        // 6. Crear el sketch con los parámetros aleatorios
-        new p5(sketchWrapper(randomModel, randomFrameRate, randomMutationSpeed), cellDiv);
+        // 6. 🚨 CAMBIO: Pasar el índice 'i' (cellID) al sketch
+        new p5(sketchWrapper(randomModel, randomFrameRate, randomMutationSpeed, i), cellDiv);
     }
 }
 
@@ -65,8 +66,9 @@ async function main() {
  * @param {tf.GraphModel} decoder - El modelo TF.js cargado (aleatorio).
  * @param {number} frameRate - La velocidad de fotogramas aleatoria.
  * @param {number} mutationSpeed - La velocidad de mutación aleatoria.
+ * @param {number} cellID - El índice de esta celda (0 a 159).
  */
-const sketchWrapper = (decoder, frameRate, mutationSpeed) => {
+const sketchWrapper = (decoder, frameRate, mutationSpeed, cellID) => { // 🚨 CAMBIO: Recibe cellID
     
     return (s) => {
         let latentVector = new Array(LATENT_DIM).fill(0);
@@ -75,7 +77,7 @@ const sketchWrapper = (decoder, frameRate, mutationSpeed) => {
         s.setup = () => {
             s.createCanvas(IMG_SIZE, IMG_SIZE);
             s.noSmooth(); 
-            s.frameRate(frameRate); 
+            s.frameRate(frameRate); // Usa el frame rate aleatorio
             noiseOffset = s.random(1000); 
             updateLatentVector();
         };
@@ -83,16 +85,28 @@ const sketchWrapper = (decoder, frameRate, mutationSpeed) => {
         s.draw = async () => {
             if (!decoder) return; 
             
-            updateLatentVector();
+            updateLatentVector(s.map(s.noise(noiseOffset), 0, 1, -5, 5));
             await generateImage(s, latentVector, decoder);
             
-            noiseOffset += mutationSpeed; 
+            noiseOffset += mutationSpeed; // Usa la velocidad de mutación aleatoria
+
+            // ---------------------------------------------------------
+            // 🚨 CAMBIO: TRANSMISOR DE LOCALSTORAGE
+            // ---------------------------------------------------------
+            // Si esta es la primera celda (ID 0), transmite su vector
+            if (cellID === 0) {
+                try {
+                    // Convertimos el array de 64 números a un string JSON
+                    localStorage.setItem('live_latent_vector_z', JSON.stringify(latentVector));
+                } catch (e) {
+                    // (Ignorar error si localStorage está desactivado o lleno)
+                }
+            }
         };
 
-        function updateLatentVector() {
-            // Usamos el rango amplio (-5 a 5) para "sacudir" los modelos colapsados
+        function updateLatentVector(global_offset = 0) {
             for (let i = 0; i < LATENT_DIM; i++) {
-                latentVector[i] = s.map(s.noise(noiseOffset + i * 0.1), 0, 1, -10, 5);
+                latentVector[i] = s.map(s.noise(noiseOffset + i * 0.1), 0, 1, -5, 5) + global_offset;
             }
         }
     };
@@ -100,6 +114,7 @@ const sketchWrapper = (decoder, frameRate, mutationSpeed) => {
 
 /**
  * Función auxiliar (global) para generar una imagen (B&N Invertido).
+ * (Esta función se mantiene igual que en tu código)
  */
 async function generateImage(s, z_vector, decoder) {
     const z_tensor = tf.tensor2d([z_vector]);
@@ -108,11 +123,12 @@ async function generateImage(s, z_vector, decoder) {
         const result_tensor = decoder.predict(z_tensor);
         const pixelData = await result_tensor.data();
 
-        // Fondo blanco de la celda (Como lo pediste)
+        // Fondo blanco de la celda
         s.background(255); 
         
         s.loadPixels();
         let index = 0;
+        
         const threshold = 127.5; 
 
         for (let y = 0; y < s.height; y++) {
