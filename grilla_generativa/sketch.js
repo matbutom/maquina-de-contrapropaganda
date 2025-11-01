@@ -8,8 +8,8 @@ const IMG_SIZE = 64;
 const MODEL_BASE_URL = '../tfjs_models_final'; 
 
 // Tus configuraciones personalizadas
-const NUM_CELLS = 160; 
-const FRAME_RATE_PER_CELL = 19; 
+const NUM_CELLS = 144; 
+const FRAME_RATE_PER_CELL = 2; 
 
 /**
  * Función principal asíncrona.
