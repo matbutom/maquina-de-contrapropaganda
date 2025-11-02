@@ -1,0 +1,22 @@
+/* Resetear el navegador y centrar el canvas */
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden; 
+    background-color: #111; /* Fondo oscuro para resaltar el afiche */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    width: 100vw;
+}
+
+/* * El canvas de p5.js (creado en sketch.js)
+ * se centrará y se escalará para ajustarse a la ventana.
+ */
+canvas {
+    max-width: 90vw;
+    max-height: 90vh;
+    object-fit: contain;
+    border: 1px solid #333;
+}
