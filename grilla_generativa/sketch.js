@@ -15,6 +15,8 @@ const FRAME_RATE_PER_CELL = 2;
 
 let monitorWin = null;
 
+let copiaVectorLatente = null;
+
 function openMonitor() {
   if (monitorWin && !monitorWin.closed) {
     monitorWin.focus();
@@ -96,6 +98,7 @@ const sketchWrapper = (decoder, frameRate, mutationSpeed, cellID) => {
     function updateLatentVector(global_offset = 0) {
       for (let i = 0; i < LATENT_DIM; i++) {
         latentVector[i] = s.map(s.noise(noiseOffset + i * 0.1), 0, 1, -5, 5) + global_offset;
+        copiaVectorLatente = latentVector; // copia global para debug
       }
     }
   };
