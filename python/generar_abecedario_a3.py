@@ -1,6 +1,6 @@
 """
-Generar múltiples hojas A3 usando una grilla generativa del espacio latente,
-continuando numeración automáticamente.
+Generar múltiples hojas A3 con variaciones profundas del espacio latente,
+usando threshold robusto, barajado de letras y latentes más expresivos.
 
 Typografica Propagandistica — Rafita Studio
 """
@@ -9,16 +9,21 @@ import tensorflow as tf
 import numpy as np
 from pathlib import Path
 from PIL import Image
+import random
 import re
 
 # =======================================
-# CONFIGURACIÓN
+# CONFIG
 # =======================================
 
 LATENT_DIM = 64
 IMG_SIZE = 64
-NUEVAS_HOJAS = 10        # ← generar 10 nuevas por ejecución
-ESCALA_LATENTE = 5.0
+NUEVAS_HOJAS = 10
+
+ESCALA_LATENTE = 2.8          # mejor controlado
+NOISE_EXTRA = 0.35            # más variabilidad por celda
+THRESH = 0.55                 # threshold robusto
+
 A3_DPI = 300
 
 BASE = Path(__file__).resolve().parent.parent
@@ -58,66 +63,75 @@ def cargar_decoders():
 # =======================================
 
 def detectar_ultimo_indice():
-    """
-    Busca en OUTPUT_DIR archivos como:
-    abecedario_A3_grilla_001.png
-    y retorna el número máximo encontrado para continuar.
-    """
     patron = re.compile(r"abecedario_A3_grilla_(\d+)\.png")
-
     max_n = 0
+
     for archivo in OUTPUT_DIR.iterdir():
         m = patron.match(archivo.name)
         if m:
-            n = int(m.group(1))
-            if n > max_n:
-                max_n = n
+            max_n = max(max_n, int(m.group(1)))
 
     return max_n
 
 
 # =======================================
-# LATENTE SUAVE (grilla generativa)
+# GENERAR LATENTE (mucho más variado)
 # =======================================
 
-def generar_latente_suave(pagina_idx: int, celda_idx: int) -> np.ndarray:
-    seed = pagina_idx * 1000 + celda_idx
+def generar_latente(pagina_idx: int, celda_idx: int) -> np.ndarray:
+    """
+    Latente expresivo y muy variable.
+    - Interpolación suave
+    - Ruido por celda
+    - Offset global por página
+    """
+
+    seed = pagina_idx * 10000 + celda_idx
     rng = np.random.default_rng(seed)
 
-    coarse_len = 16
+    # ruido interpolado
+    coarse_len = 12
     xs_coarse = np.linspace(0, 1, coarse_len)
     xs_full = np.linspace(0, 1, LATENT_DIM)
 
-    coarse_noise = rng.random(coarse_len)
-    smooth_noise = np.interp(xs_full, xs_coarse, coarse_noise)
+    coarse_noise = rng.normal(0, 1, coarse_len)
+    base_latent = np.interp(xs_full, xs_coarse, coarse_noise)
 
-    latent = (smooth_noise * 2 * ESCALA_LATENTE) - ESCALA_LATENTE
+    # escala general
+    base_latent *= ESCALA_LATENTE
 
-    global_offset = rng.normal(loc=0.0, scale=0.5)
-    latent = latent + global_offset
+    # ruido extra por celda
+    base_latent += rng.normal(0, NOISE_EXTRA, LATENT_DIM)
 
-    return latent.astype("float32")[None, :]
+    # offset global por página
+    offset = np.sin(pagina_idx * 0.42) * 0.8
+    base_latent += offset
+
+    return base_latent.astype("float32")[None, :]
 
 
 # =======================================
-# GENERAR LETRA
+# GENERAR LETRA (threshold + blanco/negro)
 # =======================================
 
 def generar_letra(decoder, z: np.ndarray) -> Image.Image:
     fn = decoder.signatures["serving_default"]
+
     nombre_input = list(fn.structured_input_signature[1].keys())[0]
+    nombre_out = list(fn.structured_outputs.keys())[0]
 
     z_tf = tf.convert_to_tensor(z, dtype=tf.float32)
     salida = fn(**{nombre_input: z_tf})
-    pred = list(salida.values())[0].numpy()[0]
+    arr = salida[nombre_out].numpy()[0, :, :, 0]
 
-    pred = (pred * 255).clip(0, 255).astype("uint8")
-    arr = pred.squeeze()
+    # normalizar a 0–1
+    arr_norm = (arr - arr.min()) / max(1e-5, arr.max() - arr.min())
 
-    h, w = arr.shape
-    rgb = np.ones((h, w, 3), dtype=np.uint8) * 255
-    mask = arr < 200
-    rgb[mask] = [0, 0, 0]
+    # threshold robusto: letra negra, fondo blanco
+    arr_bw = (arr_norm > THRESH).astype(np.uint8) * 255
+
+    rgb = np.ones((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8) * 255
+    rgb[arr_bw < 128] = [0, 0, 0]
 
     return Image.fromarray(rgb, mode="RGB")
 
@@ -134,35 +148,38 @@ def generar_hoja_A3(modelos, nombre_archivo: str, pagina_idx: int):
 
     COLS = 4
     ROWS = 8
+
     CELL_W = A3_W // (COLS + 1)
     CELL_H = A3_H // (ROWS + 1)
+
+    # letras mezcladas para variabilidad entre hojas
+    letras_shuffled = LETRAS.copy()
+    random.seed(pagina_idx)
+    random.shuffle(letras_shuffled)
 
     index = 0
     for fila in range(ROWS):
         for col in range(COLS):
-            letra = LETRAS[index % len(LETRAS)]
+            letra = letras_shuffled[index % len(LETRAS)]
             index += 1
 
             if letra not in modelos:
                 continue
 
             decoder = modelos[letra]
-
-            celda_id = fila * COLS + col
-            z = generar_latente_suave(pagina_idx, celda_id)
+            z = generar_latente(pagina_idx, index)
 
             img = generar_letra(decoder, z)
-
-            escala = 4
-            img = img.resize((IMG_SIZE * escala, IMG_SIZE * escala), Image.NEAREST)
+            img = img.resize((IMG_SIZE * 4, IMG_SIZE * 4), Image.NEAREST)
 
             x = (col + 1) * CELL_W - img.width // 2
             y = (fila + 1) * CELL_H - img.height // 2
+
             lienzo.paste(img, (x, y))
 
     salida = OUTPUT_DIR / nombre_archivo
     lienzo.save(salida, "PNG", dpi=(A3_DPI, A3_DPI))
-    print("Guardado:", salida)
+    print("✓ Guardado:", salida)
 
 
 # =======================================
