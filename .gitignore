@@ -45,3 +45,5 @@ maquina-de-contrapropaganda/saved_models_temp/
 maquina-de-contrapropaganda/flipbook_clean/
 __pycache__/
 .DS_Store
+
+typo_web/type_imgs/
